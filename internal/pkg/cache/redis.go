@@ -3,9 +3,10 @@ package cache
 import (
 	"context"
 	"fmt"
-	"github.com/go-redis/redis/v8"
-	"strconv"
 	"time"
+
+	"github.com/go-redis/redis/v8"
+	"github.com/pkg/errors"
 )
 
 // RedisCache - implementation of Cache interface
@@ -24,26 +25,27 @@ func InitRedisCache(ctx context.Context, host string, port int) (*RedisCache, er
 	})
 
 	// check connection by setting test value
-	err := rdb.Set(ctx, "key", "value", 0).Err()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		return nil, errors.Wrap(err, "redis ping")
+	}
 
 	return &RedisCache{
-		ctx:    ctx,
 		client: rdb,
-	}, err
+	}, nil
 }
 
 // Add - add rand value with expiration (in seconds) to cache
-func (c *RedisCache) Add(key int, expiration int64) error {
-	return c.client.Set(c.ctx, strconv.Itoa(key), "value", time.Duration(expiration*1e9)*time.Second).Err()
+func (c *RedisCache) Add(ctx context.Context, key string, expiration int64) error {
+	return c.client.Set(ctx, key, "1", time.Duration(expiration)*time.Second).Err()
 }
 
-// Get - check existence of int key in cache
-func (c *RedisCache) Get(key int) (bool, error) {
-	val, err := c.client.Get(c.ctx, strconv.Itoa(key)).Result()
-	return val != "", err
+// Exist - check existence of int key in cache
+func (c *RedisCache) Exist(ctx context.Context, key string) (bool, error) {
+	val, err := c.client.Exists(ctx, key).Result()
+	return val == 1, err
 }
 
 // Delete - delete key from cache
-func (c *RedisCache) Delete(key int) {
-	c.client.Del(c.ctx, strconv.Itoa(key))
+func (c *RedisCache) Delete(ctx context.Context, key string) {
+	c.client.Del(ctx, key)
 }

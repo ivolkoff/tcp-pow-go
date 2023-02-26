@@ -12,7 +12,7 @@ services:
       CACHE_PORT: '6379'
     ports:
       - '3333:3333'
-    image: nightlord189/tcp-pow-go/server:latest
+    image: ivolkoff/tcp-pow-go/server:latest
     restart: 'no'
     depends_on:
       - redis
@@ -24,7 +24,7 @@ services:
     environment:
       SERVER_HOST: "server"
       SERVER_PORT: '3333'
-    image: nightlord189/tcp-pow-go/client:latest
+    image: ivolkoff/tcp-pow-go/client:latest
     restart: 'no'
     depends_on:
       - server

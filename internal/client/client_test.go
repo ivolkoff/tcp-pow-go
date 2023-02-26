@@ -5,14 +5,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/nightlord189/tcp-pow-go/internal/pkg/config"
-	"github.com/nightlord189/tcp-pow-go/internal/pkg/pow"
-	"github.com/nightlord189/tcp-pow-go/internal/pkg/protocol"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/config"
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/pow"
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/protocol"
 )
 
 // MockConnection - mocks tcp connection by two interfaces (reader and writer) and funcs
@@ -35,13 +37,19 @@ func TestHandleConnection(t *testing.T) {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, "config", &config.Config{HashcashMaxIterations: 1000000})
 
+	cli := client{
+		di: &Dependency{
+			Config: &config.Config{HashcashMaxIterations: 1000000},
+		},
+	}
+
 	t.Run("Write error", func(t *testing.T) {
 		mock := MockConnection{
 			WriteFunc: func(p []byte) (int, error) {
 				return 0, fmt.Errorf("test write error")
 			},
 		}
-		_, err := HandleConnection(ctx, mock, mock)
+		_, err := cli.handleConnection(mock, mock)
 		assert.Error(t, err)
 		assert.Equal(t, "err send request: test write error", err.Error())
 	})
@@ -55,7 +63,7 @@ func TestHandleConnection(t *testing.T) {
 				return 0, fmt.Errorf("test read error")
 			},
 		}
-		_, err := HandleConnection(ctx, mock, mock)
+		_, err := cli.handleConnection(mock, mock)
 		assert.Error(t, err)
 		assert.Equal(t, "err read msg: test read error", err.Error())
 	})
@@ -69,7 +77,7 @@ func TestHandleConnection(t *testing.T) {
 				return fillTestReadBytes("||\n", p), nil
 			},
 		}
-		_, err := HandleConnection(ctx, mock, mock)
+		_, err := cli.handleConnection(mock, mock)
 		assert.Error(t, err)
 		assert.Equal(t, "err parse msg: message doesn't match protocol", err.Error())
 	})
@@ -83,7 +91,7 @@ func TestHandleConnection(t *testing.T) {
 				return fillTestReadBytes(fmt.Sprintf("%d|{wrong_json}\n", protocol.ResponseChallenge), p), nil
 			},
 		}
-		_, err := HandleConnection(ctx, mock, mock)
+		_, err := cli.handleConnection(mock, mock)
 		assert.Error(t, err)
 		assert.True(t, strings.Contains(err.Error(), "err parse hashcash"))
 	})
@@ -134,7 +142,7 @@ func TestHandleConnection(t *testing.T) {
 				}
 			},
 		}
-		response, err := HandleConnection(ctx, mock, mock)
+		response, err := cli.handleConnection(mock, mock)
 		assert.NoError(t, err)
 		assert.Equal(t, "test quote", response)
 	})

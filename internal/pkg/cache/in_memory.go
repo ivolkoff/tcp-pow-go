@@ -1,22 +1,19 @@
 package cache
 
 import (
+	"context"
 	"sync"
-	"time"
-)
 
-// Clock  - interface for easier mock time.Now in tests
-type Clock interface {
-	Now() time.Time
-}
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/clock"
+)
 
 // InMemoryCache - implementation of Cache interface
 // local in-memory storage, replacement for Redis in tests
 // Mutex is used to protect map (sync.Map can be used too)
 type InMemoryCache struct {
-	dataMap map[int]inMemoryValue
+	dataMap map[string]inMemoryValue
 	lock    *sync.Mutex
-	clock   Clock
+	clock   clock.Clock
 }
 
 // inMemoryValue - internal struct to check expiration on values in cache
@@ -27,16 +24,16 @@ type inMemoryValue struct {
 
 // InitInMemoryCache - create new instance of InMemoryCache
 // clock - instance of Clock to get time.Now() (and mocks in tests)
-func InitInMemoryCache(clock Clock) *InMemoryCache {
+func InitInMemoryCache(clock clock.Clock) *InMemoryCache {
 	return &InMemoryCache{
-		dataMap: make(map[int]inMemoryValue, 0),
+		dataMap: make(map[string]inMemoryValue, 0),
 		lock:    &sync.Mutex{},
 		clock:   clock,
 	}
 }
 
 // Add - add rand value with expiration (in seconds) to cache
-func (c *InMemoryCache) Add(key int, expiration int64) error {
+func (c *InMemoryCache) Add(ctx context.Context, key string, expiration int64) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.dataMap[key] = inMemoryValue{
@@ -46,8 +43,8 @@ func (c *InMemoryCache) Add(key int, expiration int64) error {
 	return nil
 }
 
-// Get - check existence of int key in cache
-func (c *InMemoryCache) Get(key int) (bool, error) {
+// Exist - check existence of int key in cache
+func (c *InMemoryCache) Exist(ctx context.Context, key string) (bool, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	value, ok := c.dataMap[key]
@@ -58,7 +55,7 @@ func (c *InMemoryCache) Get(key int) (bool, error) {
 }
 
 // Delete - delete key from cache
-func (c *InMemoryCache) Delete(key int) {
+func (c *InMemoryCache) Delete(ctx context.Context, key string) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	delete(c.dataMap, key)

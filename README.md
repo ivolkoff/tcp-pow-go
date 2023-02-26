@@ -1,13 +1,13 @@
 # "Word of Wisdom" TCP-server with protection from DDOS based on Proof of Work
 
-[![Actions Status](https://github.com/nightlord189/tcp-pow-go/workflows/main/badge.svg)](https://github.com/nightlord189/tcp-pow-go/actions)
+[![Actions Status](https://github.com/ivolkoff/tcp-pow-go/workflows/main/badge.svg)](https://github.com/ivolkoff/tcp-pow-go/actions)
 
 ## 1. Description
 This project is a solution for some interview question on Golang.
 
 ## 2. Getting started
 ### 2.1 Requirements
-+ [Go 1.17+](https://go.dev/dl/) installed (to run tests, start server or client without Docker)
++ [Go 1.20+](https://go.dev/dl/) installed (to run tests, start server or client without Docker)
 + [Docker](https://docs.docker.com/engine/install/) installed (to run docker-compose)
 
 ### 2.2 Start server and client by docker-compose:

@@ -5,15 +5,18 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/nightlord189/tcp-pow-go/internal/pkg/config"
-	"github.com/nightlord189/tcp-pow-go/internal/pkg/pow"
-	"github.com/nightlord189/tcp-pow-go/internal/pkg/protocol"
 	"math/rand"
 	"net"
 	"strconv"
-	"time"
+
+	"github.com/pkg/errors"
+
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/cache"
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/clock"
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/config"
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/pow"
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/protocol"
 )
 
 // Quotes - const array of quotes to respond on client's request
@@ -31,25 +34,31 @@ var Quotes = []string{
 		"as the children of Israel, and not slay them",
 }
 
-var ErrQuit = errors.New("client requests to close connection")
+var (
+	ErrQuit = errors.New("client requests to close connection")
+)
 
-// Clock  - interface for easier mock time.Now in tests
-type Clock interface {
-	Now() time.Time
+type Server interface {
+	Run(address string) error
 }
 
-// Cache - interface for add, delete and check existence of rand values for hashcash
-type Cache interface {
-	// Add - add rand value with expiration (in seconds) to cache
-	Add(int, int64) error
-	// Get - check existence of int key in cache
-	Get(int) (bool, error)
-	// Delete - delete key from cache
-	Delete(int)
+type server struct {
+	di *Dependency
+}
+
+type Dependency struct {
+	Config *config.Config
+	Clock  clock.Clock
+	Cache  cache.Cache
+	Rand   *rand.Rand
+}
+
+func NewServer(di *Dependency) Server {
+	return &server{di: di}
 }
 
 // Run - main function, launches server to listen on given address and handle new connections
-func Run(ctx context.Context, address string) error {
+func (s *server) Run(address string) error {
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return err
@@ -64,11 +73,11 @@ func Run(ctx context.Context, address string) error {
 			return fmt.Errorf("error accept connection: %w", err)
 		}
 		// Handle connections in a new goroutine.
-		go handleConnection(ctx, conn)
+		go s.handleConnection(conn)
 	}
 }
 
-func handleConnection(ctx context.Context, conn net.Conn) {
+func (s *server) handleConnection(conn net.Conn) {
 	fmt.Println("new client:", conn.RemoteAddr())
 	defer conn.Close()
 
@@ -80,13 +89,13 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 			fmt.Println("err read connection:", err)
 			return
 		}
-		msg, err := ProcessRequest(ctx, req, conn.RemoteAddr().String())
+		msg, err := s.processRequest(req, conn.RemoteAddr().String())
 		if err != nil {
 			fmt.Println("err process request:", err)
 			return
 		}
 		if msg != nil {
-			err := sendMsg(*msg, conn)
+			err := s.sendMsg(*msg, conn)
 			if err != nil {
 				fmt.Println("err send message:", err)
 			}
@@ -94,9 +103,10 @@ func handleConnection(ctx context.Context, conn net.Conn) {
 	}
 }
 
-// ProcessRequest - process request from client
+// processRequest - process request from client
 // returns not-nil pointer to Message if needed to send it back to client
-func ProcessRequest(ctx context.Context, msgStr string, clientInfo string) (*protocol.Message, error) {
+func (s *server) processRequest(msgStr string, clientInfo string) (*protocol.Message, error) {
+	ctx := context.Background()
 	msg, err := protocol.ParseMessage(msgStr)
 	if err != nil {
 		return nil, err
@@ -108,22 +118,19 @@ func ProcessRequest(ctx context.Context, msgStr string, clientInfo string) (*pro
 	case protocol.RequestChallenge:
 		fmt.Printf("client %s requests challenge\n", clientInfo)
 		// create new challenge for client
-		conf := ctx.Value("config").(*config.Config)
-		clock := ctx.Value("clock").(Clock)
-		cache := ctx.Value("cache").(Cache)
-		date := clock.Now()
+		date := s.di.Clock.Now()
 
 		// add new created rand value to cache to check it later on RequestResource stage
 		// with duration in seconds
-		randValue := rand.Intn(100000)
-		err := cache.Add(randValue, conf.HashcashDuration)
+		randValue := s.di.Rand.Intn(100000)
+		err := s.di.Cache.Add(ctx, s.cacheKey(clientInfo, randValue), s.di.Config.HashcashDuration)
 		if err != nil {
 			return nil, fmt.Errorf("err add rand to cache: %w", err)
 		}
 
 		hashcash := pow.HashcashData{
 			Version:    1,
-			ZerosCount: conf.HashcashZerosCount,
+			ZerosCount: s.di.Config.HashcashZerosCount,
 			Date:       date.Unix(),
 			Resource:   clientInfo,
 			Rand:       base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%d", randValue))),
@@ -150,9 +157,6 @@ func ProcessRequest(ctx context.Context, msgStr string, clientInfo string) (*pro
 		if hashcash.Resource != clientInfo {
 			return nil, fmt.Errorf("invalid hashcash resource")
 		}
-		conf := ctx.Value("config").(*config.Config)
-		clock := ctx.Value("clock").(Clock)
-		cache := ctx.Value("cache").(Cache)
 
 		// decoding rand from base64 field in received client's hashcash
 		randValueBytes, err := base64.StdEncoding.DecodeString(hashcash.Rand)
@@ -165,7 +169,7 @@ func ProcessRequest(ctx context.Context, msgStr string, clientInfo string) (*pro
 		}
 
 		// if rand exists in cache, it means, that hashcash is valid and really challenged by this server in past
-		exists, err := cache.Get(randValue)
+		exists, err := s.di.Cache.Exist(ctx, s.cacheKey(clientInfo, randValue))
 		if err != nil {
 			return nil, fmt.Errorf("err get rand from cache: %w", err)
 		}
@@ -174,7 +178,7 @@ func ProcessRequest(ctx context.Context, msgStr string, clientInfo string) (*pro
 		}
 
 		// sent solution should not be outdated
-		if clock.Now().Unix()-hashcash.Date > conf.HashcashDuration {
+		if s.di.Clock.Now().Unix()-hashcash.Date > s.di.Config.HashcashDuration {
 			return nil, fmt.Errorf("challenge expired")
 		}
 		//to prevent indefinite computing on server if client sent hashcash with 0 counter
@@ -190,18 +194,23 @@ func ProcessRequest(ctx context.Context, msgStr string, clientInfo string) (*pro
 		fmt.Printf("client %s succesfully computed hashcash %s\n", clientInfo, msg.Payload)
 		msg := protocol.Message{
 			Header:  protocol.ResponseResource,
-			Payload: Quotes[rand.Intn(4)],
+			Payload: Quotes[s.di.Rand.Intn(len(Quotes))],
 		}
 		// delete rand from cache to prevent duplicated request with same hashcash value
-		cache.Delete(randValue)
+		s.di.Cache.Delete(ctx, s.cacheKey(clientInfo, randValue))
 		return &msg, nil
 	default:
 		return nil, fmt.Errorf("unknown header")
 	}
 }
 
+// cacheKey - generate cache key for client
+func (s *server) cacheKey(clientInfo string, rand int) string {
+	return fmt.Sprintf("%s:%d", clientInfo, rand)
+}
+
 // sendMsg - send protocol message to connection
-func sendMsg(msg protocol.Message, conn net.Conn) error {
+func (s *server) sendMsg(msg protocol.Message, conn net.Conn) error {
 	msgStr := fmt.Sprintf("%s\n", msg.Stringify())
 	_, err := conn.Write([]byte(msgStr))
 	return err

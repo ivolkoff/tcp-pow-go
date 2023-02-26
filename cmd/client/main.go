@@ -1,10 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"github.com/nightlord189/tcp-pow-go/internal/client"
-	"github.com/nightlord189/tcp-pow-go/internal/pkg/config"
+
+	"github.com/ivolkoff/tcp-pow-go/internal/client"
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/config"
 )
 
 func main() {
@@ -17,15 +17,12 @@ func main() {
 		return
 	}
 
-	// init context to pass config down
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, "config", configInst)
-
-	address := fmt.Sprintf("%s:%d", configInst.ServerHost, configInst.ServerPort)
-
 	// run client
-	err = client.Run(ctx, address)
-	if err != nil {
+	cli := client.NewClient(&client.Dependency{
+		Config: configInst,
+	})
+	address := fmt.Sprintf("%s:%d", configInst.ServerHost, configInst.ServerPort)
+	if err := cli.Run(address); err != nil {
 		fmt.Println("client error:", err)
 	}
 }

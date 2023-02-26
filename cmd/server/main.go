@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/nightlord189/tcp-pow-go/internal/pkg/cache"
-	"github.com/nightlord189/tcp-pow-go/internal/pkg/clock"
-	"github.com/nightlord189/tcp-pow-go/internal/pkg/config"
-	"github.com/nightlord189/tcp-pow-go/internal/server"
 	"math/rand"
-	"time"
+
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/cache"
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/clock"
+	"github.com/ivolkoff/tcp-pow-go/internal/pkg/config"
+	"github.com/ivolkoff/tcp-pow-go/internal/server"
 )
 
 func main() {
@@ -23,23 +23,22 @@ func main() {
 
 	// init context to pass config down
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, "config", configInst)
-	ctx = context.WithValue(ctx, "clock", clock.SystemClock{})
 
 	cacheInst, err := cache.InitRedisCache(ctx, configInst.CacheHost, configInst.CachePort)
 	if err != nil {
 		fmt.Println("error init cache:", err)
 		return
 	}
-	ctx = context.WithValue(ctx, "cache", cacheInst)
-
-	// seed random generator to randomize order of quotes
-	rand.Seed(time.Now().UnixNano())
 
 	// run server
-	serverAddress := fmt.Sprintf("%s:%d", configInst.ServerHost, configInst.ServerPort)
-	err = server.Run(ctx, serverAddress)
-	if err != nil {
+	ser := server.NewServer(&server.Dependency{
+		Config: configInst,
+		Clock:  new(clock.SystemClock),
+		Cache:  cacheInst,
+		Rand:   rand.New(rand.NewSource(0)),
+	})
+	address := fmt.Sprintf("%s:%d", configInst.ServerHost, configInst.ServerPort)
+	if err := ser.Run(address); err != nil {
 		fmt.Println("server error:", err)
 	}
 }

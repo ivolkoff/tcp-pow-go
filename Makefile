@@ -1,3 +1,8 @@
+version:
+	echo $(PATH)
+	which go
+	go version
+
 install:
 	go mod download
 
